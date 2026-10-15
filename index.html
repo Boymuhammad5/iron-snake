@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Iron Snake — Avengers Arcade</title>
+<style>
+  :root { --cell: 20px; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html,body {
+    margin:0; padding:0; height:100%;
+    background: radial-gradient(circle at 50% 0%, #2b1a3d 0%, #0b0b16 70%);
+    color:#fff; font-family: "Segoe UI", system-ui, Arial, sans-serif;
+    overflow:hidden; touch-action:none; user-select:none;
+  }
+  #wrap { display:flex; flex-direction:column; align-items:center; justify-content:flex-start;
+          height:100%; padding:10px 8px; }
+  h1 { font-size:18px; margin:4px 0 2px; letter-spacing:.5px;
+       background:linear-gradient(90deg,#ffcf3f,#ff5d5d); -webkit-background-clip:text;
+       background-clip:text; color:transparent; font-weight:800; }
+  #hud { display:flex; gap:18px; font-size:14px; margin:2px 0 8px; opacity:.95; }
+  #hud b { color:#ffcf3f; }
+  #stage { position:relative; }
+  canvas { background:#11111f; border:2px solid #3a2e5c; border-radius:10px;
+           box-shadow:0 8px 30px rgba(0,0,0,.6); display:block; }
+  #overlay { position:absolute; inset:0; display:flex; flex-direction:column;
+             align-items:center; justify-content:center; text-align:center;
+             background:rgba(10,8,20,.82); border-radius:10px; padding:16px; }
+  #overlay h2 { margin:0 0 8px; font-size:22px; color:#ffcf3f; }
+  #overlay p { margin:4px 0; font-size:14px; max-width:260px; line-height:1.4; }
+  .btn { margin-top:14px; padding:12px 26px; font-size:16px; font-weight:700;
+         border:none; border-radius:30px; cursor:pointer; color:#1a1030;
+         background:linear-gradient(90deg,#ffcf3f,#ff8a3d); box-shadow:0 4px 14px rgba(255,160,60,.5); }
+  .btn:active { transform:translateY(1px); }
+  #pad { margin-top:14px; display:grid; grid-template-columns:repeat(3,64px);
+         grid-template-rows:repeat(3,64px); gap:8px; }
+  .dir { background:#2a2142; border:1px solid #4a3a73; border-radius:12px;
+         color:#ffcf3f; font-size:26px; display:flex; align-items:center; justify-content:center; }
+  .dir:active { background:#3d2f63; }
+  .spacer { visibility:hidden; }
+  #hint { font-size:12px; opacity:.6; margin-top:10px; text-align:center; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <h1>🛡️ IRON SNAKE</h1>
+  <div id="hud">Score: <b id="score">0</b> &nbsp;•&nbsp; Best: <b id="best">0</b></div>
+  <div id="stage">
+    <canvas id="c" width="320" height="320"></canvas>
+    <div id="overlay">
+      <h2>IRON SNAKE</h2>
+      <p>Pilot Iron Man. Grab the glowing <b>Arc Reactors</b> ⚡ to grow and score.
+         Don't crash into walls or yourself!</p>
+      <p>Swipe or use the arrows / WASD / D-pad.</p>
+      <button class="btn" id="startBtn">▶ ASSEMBLE</button>
+    </div>
+  </div>
+  <div id="pad">
+    <div class="spacer"></div>
+    <div class="dir" data-d="up">▲</div>
+    <div class="spacer"></div>
+    <div class="dir" data-d="left">◀</div>
+    <div class="spacer"></div>
+    <div class="dir" data-d="right">▶</div>
+    <div class="spacer"></div>
+    <div class="dir" data-d="down">▼</div>
+    <div class="spacer"></div>
+  </div>
+  <div id="hint">Swipe on the board or tap the D-pad • Arrow keys / WASD on desktop</div>
+</div>
+<script>
+(function(){
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  const GRID = 16, CELL = canvas.width / GRID;
+  const scoreEl = document.getElementById('score');
+  const bestEl = document.getElementById('best');
+  const overlay = document.getElementById('overlay');
+  const startBtn = document.getElementById('startBtn');
+  const ovTitle = overlay.querySelector('h2');
+
+  let snake, dir, nextDir, food, score, best, running, tick, speed, acc, last;
+  best = +(localStorage.getItem('ironsnake_best') || 0);
+  bestEl.textContent = best;
+
+  function reset(){
+    snake = [{x:8,y:8},{x:7,y:8},{x:6,y:8}];
+    dir = {x:1,y:0}; nextDir = {x:1,y:0};
+    score = 0; speed = 150; acc = 0; last = 0;
+    placeFood();
+    scoreEl.textContent = 0;
+  }
+  function placeFood(){
+    while(true){
+      const f = {x:(Math.random()*GRID)|0, y:(Math.random()*GRID)|0};
+      if(!snake.some(s=>s.x===f.x && s.y===f.y)){ food=f; return; }
+    }
+  }
+  function setDir(nx,ny){
+    if(nx===-dir.x && ny===-dir.y) return; // no reverse
+    nextDir = {x:nx,y:ny};
+  }
+  function step(){
+    dir = nextDir;
+    const head = {x:snake[0].x+dir.x, y:snake[0].y+dir.y};
+    if(head.x<0||head.y<0||head.x>=GRID||head.y>=GRID||snake.some(s=>s.x===head.x&&s.y===head.y)){
+      gameOver(); return;
+    }
+    snake.unshift(head);
+    if(head.x===food.x && head.y===food.y){
+      score += 10; scoreEl.textContent = score;
+      if(speed>70) speed -= 4;
+      placeFood();
+    } else {
+      snake.pop();
+    }
+  }
+  function draw(){
+    if(!snake||!food) return;
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    // subtle grid
+    ctx.strokeStyle='rgba(255,255,255,0.03)';
+    for(let i=1;i<GRID;i++){
+      ctx.beginPath();ctx.moveTo(i*CELL,0);ctx.lineTo(i*CELL,canvas.height);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(0,i*CELL);ctx.lineTo(canvas.width,i*CELL);ctx.stroke();
+    }
+    // food = arc reactor
+    const fx=food.x*CELL+CELL/2, fy=food.y*CELL+CELL/2;
+    const g=ctx.createRadialGradient(fx,fy,1,fx,fy,CELL/1.4);
+    g.addColorStop(0,'#bff6ff'); g.addColorStop(.5,'#39c6ff'); g.addColorStop(1,'rgba(57,198,255,0)');
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(fx,fy,CELL/1.4,0,7); ctx.fill();
+    ctx.fillStyle='#eafaff'; ctx.beginPath(); ctx.arc(fx,fy,CELL/5,0,7); ctx.fill();
+    // snake = Iron Man suit
+    for(let i=snake.length-1;i>=0;i--){
+      const s=snake[i];
+      const x=s.x*CELL, y=s.y*CELL;
+      if(i===0){ ctx.fillStyle='#ffcf3f'; }       // head = gold
+      else { ctx.fillStyle = i%2 ? '#d63031' : '#b02121'; } // body = red armor
+      roundRect(x+1,y+1,CELL-2,CELL-2,4); ctx.fill();
+      if(i===0){
+        // eyes
+        ctx.fillStyle='#bff6ff';
+        const ex = dir.x, ey = dir.y;
+        ctx.fillRect(x+CELL/2-4+ex*3, y+CELL/2-3+ey*3, 3,3);
+        ctx.fillRect(x+CELL/2+1+ex*3, y+CELL/2-3+ey*3, 3,3);
+      }
+    }
+  }
+  function roundRect(x,y,w,h,r){
+    ctx.beginPath();
+    ctx.moveTo(x+r,y);
+    ctx.arcTo(x+w,y,x+w,y+h,r);
+    ctx.arcTo(x+w,y+h,x,y+h,r);
+    ctx.arcTo(x,y+h,x,y,r);
+    ctx.arcTo(x,y,x+w,y,r);
+    ctx.closePath();
+  }
+  function loop(ts){
+    if(!running) return;
+    if(!last) last=ts;
+    acc += ts-last; last=ts;
+    if(acc>=speed){ acc=0; step(); }
+    draw();
+    requestAnimationFrame(loop);
+  }
+  function start(){
+    reset(); running=true; overlay.style.display='none';
+    last=0; requestAnimationFrame(loop);
+    postScore(0);
+  }
+  function gameOver(){
+    running=false;
+    if(score>best){ best=score; localStorage.setItem('ironsnake_best',best); bestEl.textContent=best; }
+    ovTitle.textContent='GAME OVER';
+    overlay.querySelectorAll('p').forEach((p,i)=>{ p.style.display = i===0?'block':'none'; });
+    overlay.querySelector('p').innerHTML = 'Final score: <b>'+score+'</b> &nbsp;•&nbsp; Best: <b>'+best+'</b>';
+    startBtn.textContent='▶ PLAY AGAIN';
+    overlay.style.display='flex';
+    postScore(score);
+  }
+  // Telegram game score hook (best-effort; works when launched via sendGame)
+  function postScore(s){
+    try{
+      if(window.TelegramGameProxy && typeof window.TelegramGameProxy.shareScore==='function'){
+        // handled by Telegram client menu; nothing to do here
+      }
+    }catch(e){}
+  }
+
+  startBtn.addEventListener('click', start);
+
+  // keyboard
+  addEventListener('keydown', e=>{
+    const k=e.key.toLowerCase();
+    if(k==='arrowup'||k==='w') setDir(0,-1);
+    else if(k==='arrowdown'||k==='s') setDir(0,1);
+    else if(k==='arrowleft'||k==='a') setDir(-1,0);
+    else if(k==='arrowright'||k==='d') setDir(1,0);
+    else return;
+    e.preventDefault();
+  }, {passive:false});
+
+  // d-pad
+  document.querySelectorAll('.dir').forEach(el=>{
+    const map={up:[0,-1],down:[0,1],left:[-1,0],right:[1,0]};
+    const d=map[el.dataset.d];
+    const h=e=>{ e.preventDefault(); setDir(d[0],d[1]); };
+    el.addEventListener('touchstart',h,{passive:false});
+    el.addEventListener('mousedown',h);
+  });
+
+  // swipe on canvas
+  let sx=0,sy=0;
+  canvas.addEventListener('touchstart',e=>{const t=e.touches[0];sx=t.clientX;sy=t.clientY;},{passive:true});
+  canvas.addEventListener('touchmove',e=>{e.preventDefault();},{passive:false});
+  canvas.addEventListener('touchend',e=>{
+    const t=e.changedTouches[0];
+    const dx=t.clientX-sx, dy=t.clientY-sy;
+    if(Math.abs(dx)<16 && Math.abs(dy)<16) return;
+    if(Math.abs(dx)>Math.abs(dy)) setDir(dx>0?1:-1,0);
+    else setDir(0,dy>0?1:-1);
+  },{passive:true});
+
+  reset();
+  draw();
+})();
+</script>
+</body>
+</html>
